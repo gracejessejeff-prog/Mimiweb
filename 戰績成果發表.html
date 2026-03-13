@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MUTOY 統計系統</title>
+</head>
+<body style="font-family:sans-serif;padding:15px;background:#f0f2f5;color:#333">
+<div style="max-width:500px;margin:auto;background:#fff;padding:20px;border-radius:12px;box-shadow:0 4px 15px rgba(0,0,0,0.1)">
+    <h3 style="text-align:center;margin-top:0;color:#6f42c1;font-size:18px">MUTOY專用統計表</h3>
+    
+    <textarea id="i" style="width:100%;height:150px;padding:10px;box-sizing:border-box;border:1px solid #ccc;border-radius:8px;font-size:14px" 
+    placeholder="範例輸入：&#10;@Allen +1/(L)最後賞！&#10;@Bob +2/AA(夢A+夢B)"></textarea>
+    
+    <div style="display:flex;gap:10px;margin:10px 0">
+        <button onclick="calc()" style="flex:2;padding:12px;background:#6f42c1;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer">立即統計</button>
+        <button onclick="clearAll()" style="flex:1;padding:12px;background:#6c757d;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer">清空</button>
+    </div>
+
+    <b>1. 戰績發表</b>
+    <div id="p" style="background:#f8f9fa;padding:12px;margin:5px 0 10px 0;border-radius:6px;white-space:pre-wrap;border:1px solid #dee2e6;font-size:13px;min-height:30px"></div>
+    <button onclick="copyWithTitle('p', '戰績發表：')" style="width:100%;margin-bottom:15px;padding:10px;font-size:13px;background:#e9ecef;border:1px solid #ddd;border-radius:6px;font-weight:bold;cursor:pointer">複製戰績發表</button>
+    
+    <b>2. 成果發表</b>
+    <div id="t" style="background:#f8f9fa;padding:12px;margin:5px 0 10px 0;border-radius:6px;white-space:pre-wrap;border:1px solid #dee2e6;font-size:13px;min-height:30px"></div>
+    <button onclick="copyText('t')" style="width:100%;padding:10px;font-size:13px;background:#e9ecef;border:1px solid #ddd;border-radius:6px;font-weight:bold;cursor:pointer">複製成果發表</button>
+</div>
+
+<script>
+// ... (這裡保留你原本所有的 JavaScript 代碼，功能不變) ...
+function calc(){
+    const raw = document.getElementById('i').value;
+    const lines = raw.split('\n');
+    let ps = {}; let ts = {}; let tc = 0;
+    lines.forEach(l => {
+        if(!l.trim() || !l.includes('/')) return;
+        let clean = l.replace(/＋/g,'+').replace(/／/g,'/').replace(/＊/g,'*').replace(/，/g,',');
+        let m = clean.match(/@(.+?)\s*\+(\d+)\/(.+)/);
+        if(m){
+            let name = m[1].trim();
+            let drawCount = parseInt(m[2]);
+            let block = m[3];
+            if(!ps[name]) ps[name] = { count: 0, items: {} };
+            ps[name].count += drawCount;
+            tc += drawCount;
+            block = block.replace(/[\(\(（]?[lL][\)\)）]?最後賞[！!]?/g, "__LAST_ONE__");
+            block = block.replace(/((?:[\(\(（]?[a-zA-Z][\)\)）]?){2,})[\(\(（](.+?)[\)\)）]/g, (match, prefix, children) => {
+                let letter = prefix.replace(/[\(\)（）]/g, '').charAt(0).toUpperCase();
+                let count = prefix.replace(/[\(\)（）]/g, '').length;
+                let subs = children.replace(/\s+/g, '').split(/[+、\.\/,]+/);
+                return Array(count).fill(0).map((_, i) => `${letter}-${subs[i] || subs[0]}`).join('、');
+            });
+            block = block.replace(/([\(\(（]?[a-zA-Z0-9\u4e00-\u9fa5][\)\)）]?)(?:\*\d+)?[\(\(（](.+?)[\)\)）]/g, (match, p1, p2) => {
+                let parent = p1.replace(/[\(\)（）]/g, '').toUpperCase();
+                let subs = p2.replace(/\s+/g, '').split(/[+、\.\/,]/);
+                return subs.map(s => `${parent}-${s}`).join('、');
+            });
+            let rawItems = block.split(/[+、\.\/\s,]/);
+            rawItems.forEach(item => {
+                if(!item.trim()) return;
+                let [content, qStr] = item.split('*');
+                let qty = qStr ? parseInt(qStr) : 1;
+                content = content.trim();
+                let parent, child;
+                if(content === "__LAST_ONE__") {
+                    parent = "L最後賞!";
+                    child = "_MAIN_";
+                } else if(content.includes('-')) {
+                    let parts = content.split('-');
+                    parent = parts[0].toUpperCase().replace(/[\(\)（）]/g, '');
+                    child = parts[1].replace(/[\(\)（）]/g, '');
+                } else {
+                    parent = content.replace(/[\(\)（）]/g, '').toUpperCase();
+                    child = "_MAIN_"; 
+                }
+                if(parent) {
+                    const update = (target) => {
+                        if(!target[parent]) target[parent] = {};
+                        target[parent][child] = (target[parent][child] || 0) + qty;
+                    };
+                    update(ps[name].items);
+                    update(ts);
+                }
+            });
+        }
+    });
+    function format(data) {
+        let keys = Object.keys(data).sort();
+        let lastKeys = keys.filter(k => k.includes("最後賞"));
+        let normalKeys = keys.filter(k => !k.includes("最後賞"));
+        let sortedParents = [...normalKeys, ...lastKeys];
+        return sortedParents.map(p => {
+            let subs = data[p];
+            let subKeys = Object.keys(subs).filter(k => k !== '_MAIN_').sort((a,b) => a.localeCompare(b, undefined, {numeric: true}));
+            let mainQty = subs['_MAIN_'] || 0;
+            let totalQty = Object.values(subs).reduce((a, b) => a + b, 0);
+            if (subKeys.length === 1 && totalQty === 1 && mainQty === 0) return `${p}-${subKeys[0]}`;
+            if (subKeys.length > 0) {
+                if (subKeys.length === 1 && subKeys[0].toUpperCase() === p && mainQty === 0) return `${p}${totalQty > 1 ? '*' + totalQty : ''}`;
+                let detail = [];
+                if(mainQty > 0) detail.push(`${p}*${mainQty}`);
+                subKeys.forEach(sk => detail.push(`${sk}*${subs[sk]}`));
+                return `${p}*${totalQty}(${detail.join('+')})`;
+            }
+            return `${p}${totalQty > 1 ? '*' + totalQty : ''}`;
+        }).join('、');
+    }
+    let po = "";
+    for(let n in ps) po += `@${n} +${ps[n].count}/${format(ps[n].items)}\n`;
+    document.getElementById('p').textContent = po.trim();
+    document.getElementById('t').textContent = tc ? `成果發表：\n總抽數：${tc}\n總獎項：${format(ts)}` : "";
+}
+function clearAll() { if(confirm('確定清空？')) { document.getElementById('i').value=''; document.getElementById('p').textContent=''; document.getElementById('t').textContent=''; } }
+function copyWithTitle(id, title) {
+    let t = document.getElementById(id).textContent;
+    if(!t) return;
+    copyToClipboard(title + "\n" + t);
+}
+function copyText(id) {
+    let t = document.getElementById(id).textContent;
+    if(!t) return;
+    copyToClipboard(t);
+}
+function copyToClipboard(text) {
+    const el = document.createElement('textarea');
+    el.value = text; document.body.appendChild(el); el.select();
+    document.execCommand('copy'); document.body.removeChild(el);
+    alert('已複製成功！');
+}
+</script>
+</body>
+</html>
